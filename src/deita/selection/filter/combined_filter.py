@@ -30,7 +30,12 @@ class Combined_Filter(IterativeFilter):
         df["final_score"] = df[all_sort_keys[0]]
         for i in range(1, len(all_sort_keys)):
             df["final_score"] = df["final_score"] * df[all_sort_keys[i]]
-            
+
+        # force numpy array.
+        # Note: this means that they calculated the score of each conversation not as an average, 
+        # but as the sum of the scores of each turn!
+        df["final_score"] = df["final_score"].apply(lambda x: np.array([x]))
+
         df["final_score"] = df["final_score"].apply(lambda x: x.sum())
         df_sorted = df.sort_values(by = "final_score", ascending = False)
         
