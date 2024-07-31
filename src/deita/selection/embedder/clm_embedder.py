@@ -57,7 +57,47 @@ class CLM_Embedder(Embedder):
             attention_mask = batch["attention_mask"]
 
             outputs = model(input_ids = batch["input_ids"], attention_mask = batch["attention_mask"], output_hidden_states = True)
+            ## >>>
+            # Forcing inference results into CPU
+            ##
+            # some values are stored as dict(torch.FloatTensor)
+            if outputs.loss is not None:
+                print("outputs loss")
+                print(type(outputs.loss))
+                for key, tuple_val in outputs.loss.items():
+                    #print("outputs loss 1")
+                    #print(type(tuple_val))
+                    if not isinstance(tuple_val, tuple):
+                        tuple_val = tuple_val.to("cpu")
+                    else:
+                        for elem in tuple_val:
+                            #print("outputs loss 2")
+                            #print(type(tuple_val))
+                            if not isinstance(elem, tuple):
+                                elem = elem.to("cpu")
+                            else:
+                                for _elem in elem:
+                                    #print("outputs loss 3")
+                                    #print(type(_elem))
+                                    _elem = _elem.to("cpu")
+                # outputs.loss = outputs.loss.to("cpu")
+            if outputs.logits is not None:
+                outputs.logits= outputs.logits.to("cpu")
+            # some values are stored as Tuple[torch.FloatTensor]
+            if outputs.attentions is not None:
+                for elem in outputs.attentions:
+                    elem = elem.to("cpu")
+            if outputs.hidden_states is not None:
+                for elem in outputs.hidden_states:
+                    elem = elem.to("cpu")
+            # some values are stored as Tuple[Tuple[torch.FloatTensor]]
+            if outputs.past_key_values is not None:
+                for tup in outputs.past_key_values:
+                    for elem in tup:
+                        elem = elem.to("cpu")            
+            ## <<<
             
+
             seq_len = attention_mask.sum(1, keepdim = True)
             
             if self.tokenizer.padding_side == "right":
