@@ -2,6 +2,7 @@ import numpy as np
 from scipy.special import softmax
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import logging
+from torch import cuda
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +13,13 @@ class Scorer(object):
         self.is_vllm = is_vllm
         
         if not is_vllm:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-            self.model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+            device_map = "cuda" if cuda.is_available() else "cpu"
+
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name_or_path,
+                model_max_length = 8000, # mistral max length = 32 000
+                )
+            self.model = AutoModelForCausalLM.from_pretrained(model_name_or_path, device_map = device_map)
         else:
             
             from vllm import LLM, SamplingParams
@@ -24,6 +30,7 @@ class Scorer(object):
     def infer_score(self, user_input: str):
 
         max_length = 2
+        device = "cuda" if cuda.is_available() else "cpu"
         
         if self.is_vllm:
             outputs = self.llm.generate(user_input, self.sampling_params)
@@ -34,11 +41,22 @@ class Scorer(object):
             except IndexError:
                 return 3.0
         else:
-            input_ids = self.tokenizer.encode(user_input, return_tensors = "pt")
+            
+            input_ids = self.tokenizer.encode(
+                user_input, return_tensors = "pt",
+                truncation = True,
+                ).to(device)
             outputs = self.model.generate(input_ids, max_new_tokens = max_length, num_return_sequences = 1, return_dict_in_generate = True, output_scores = True)
             
             try:
                 logprobs_list = outputs.scores[0][0]
+                if "cuda" in device:
+                    # send to CPU and delete from GPU
+                    aux_list = logprobs_list.cpu()
+                    del logprobs_list
+                    logprobs_list = aux_list
+                    if cuda.is_available():
+                        cuda.empty_cache()
             except IndexError:
                 return 3.0
             
@@ -49,7 +67,8 @@ class Scorer(object):
                 score_logits.append(logprobs_list[k])
             except KeyError:
                 return 3.0
-                
+        #if "cuda" in device:
+        #    score_logits = score_logits.cpu()
         score_logits = np.array(score_logits)
         score_npy = softmax(score_logits, axis=0)
         score_npy = score_npy * score_template
